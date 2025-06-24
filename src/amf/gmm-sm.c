@@ -587,8 +587,12 @@ void gmm_state_de_registered(ogs_fsm_t *s, amf_event_t *e)
                     }
 
                     if (r != OGS_OK) {
-                        if (!(AMF_UE_HAVE_SUCI(amf_ue) ||
-                                AMF_UE_HAVE_SUPI(amf_ue))) {
+#ifdef AMF_FORCE_IDENTITY_PROCEDURE
+                            ogs_warn("forcing IDENTITY_PROCEDURE\n");
+#else                        
+                        if (!(AMF_UE_HAVE_SUCI(amf_ue) || AMF_UE_HAVE_SUPI(amf_ue))) 
+#endif                        
+                        {
                             CLEAR_AMF_UE_TIMER(amf_ue->t3570);
                             r = nas_5gs_send_identity_request(amf_ue);
                             ogs_expect(r == OGS_OK);
@@ -1220,8 +1224,12 @@ void gmm_state_registered(ogs_fsm_t *s, amf_event_t *e)
                     }
 
                     if (r != OGS_OK) {
-                        if (!(AMF_UE_HAVE_SUCI(amf_ue) ||
-                                AMF_UE_HAVE_SUPI(amf_ue))) {
+#ifdef AMF_FORCE_IDENTITY_PROCEDURE
+            ogs_warn("forcing IDENTITY_PROCEDURE\n");
+#else
+                        if (!(AMF_UE_HAVE_SUCI(amf_ue) || AMF_UE_HAVE_SUPI(amf_ue))) 
+#endif                        
+                        {
                             CLEAR_AMF_UE_TIMER(amf_ue->t3570);
                             r = nas_5gs_send_identity_request(amf_ue);
                             ogs_expect(r == OGS_OK);
@@ -1391,7 +1399,12 @@ static void common_register_state(ogs_fsm_t *s, amf_event_t *e,
                 break;
             }
 
-            if (!AMF_UE_HAVE_SUCI(amf_ue)) {
+#ifdef AMF_FORCE_IDENTITY_PROCEDURE
+            ogs_warn("forcing IDENTITY_PROCEDURE\n");
+#else
+            if (!AMF_UE_HAVE_SUCI(amf_ue)) 
+#endif
+            {
                 CLEAR_AMF_UE_TIMER(amf_ue->t3570);
                 r = nas_5gs_send_identity_request(amf_ue);
                 ogs_expect(r == OGS_OK);
@@ -3003,7 +3016,12 @@ void gmm_state_exception(ogs_fsm_t *s, amf_event_t *e)
                 break;
             }
 
-            if (!AMF_UE_HAVE_SUCI(amf_ue)) {
+#ifdef AMF_FORCE_IDENTITY_PROCEDURE
+            ogs_warn("forcing IDENTITY_PROCEDURE\n");
+#else
+            if (!AMF_UE_HAVE_SUCI(amf_ue)) 
+#endif
+            {
                 CLEAR_AMF_UE_TIMER(amf_ue->t3570);
                 r = nas_5gs_send_identity_request(amf_ue);
                 ogs_expect(r == OGS_OK);

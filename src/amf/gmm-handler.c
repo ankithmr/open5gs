@@ -368,6 +368,10 @@ ogs_nas_5gmm_cause_t gmm_handle_registration_update(
     ogs_assert(ran_ue);
     ogs_assert(registration_request);
 
+    char buffer[1024]; // Large enough buffer for the string
+    int offset = 0;
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "gmm_handle_registration_update\n");
+
     last_visited_registered_tai =
         &registration_request->last_visited_registered_tai;
     ogs_assert(last_visited_registered_tai);
@@ -420,18 +424,28 @@ ogs_nas_5gmm_cause_t gmm_handle_registration_update(
 
     if (registration_request->presencemask &
         OGS_NAS_5GS_REGISTRATION_REQUEST_REQUESTED_NSSAI_PRESENT) {
+        offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  OGS_NAS_5GS_REGISTRATION_REQUEST_REQUESTED_NSSAI_PRESENT\n");
 
         amf_ue->requested_nssai.num_of_s_nssai =
             ogs_nas_parse_nssai(
                     amf_ue->requested_nssai.s_nssai,
                     &registration_request->requested_nssai);
 
+        offset += snprintf(buffer + offset, sizeof(buffer) - offset, "    num_of_s_nssai %d \n", amf_ue->requested_nssai.num_of_s_nssai);
+
         for (i = 0; i < amf_ue->requested_nssai.num_of_s_nssai; i++) {
+
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, "      [%d] sst %d sd %d\n", i,
+                amf_ue->requested_nssai.s_nssai[i].sst, 
+                amf_ue->requested_nssai.s_nssai[i].sd.v);
+
             if (amf_find_s_nssai(
                     &amf_ue->nr_tai.plmn_id,
                     (ogs_s_nssai_t *)&amf_ue->requested_nssai.s_nssai[i]))
                 break;
         }
+
+        ogs_warn("%s\n", buffer);
 
         if (i == amf_ue->requested_nssai.num_of_s_nssai) {
             ogs_error("Cannot find Requested NSSAI [%d]",
@@ -1282,6 +1296,17 @@ int gmm_handle_ul_nas_transport(ran_ue_t *ran_ue, amf_ue_t *amf_ue,
             dnn = &ul_nas_transport->dnn;
             ogs_assert(dnn);
 
+            char buffer[1024]; // Large enough buffer for the string
+            int offset = 0;
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, "[%s] OGS_NAS_5GS_PDU_SESSION_ESTABLISHMENT_REQUEST\n", amf_ue->supi);
+            for (i = 0; i < amf_ue->num_of_slice; i++) {
+                offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  UE slice[%d] : sst=%d sd=%d\n", i, 
+                                   amf_ue->slice[i].s_nssai.sst, amf_ue->slice[i].s_nssai.sd.v);
+            }
+            for (j = 0; j < amf_ue->num_of_slice; j++) {
+                offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  UE allowed_nssai[%d] : sst=%d sd=%d\n", j, 
+                                   amf_ue->allowed_nssai.s_nssai[j].sst, amf_ue->allowed_nssai.s_nssai[j].sd.v);
+            }
 
             for (i = 0; i < amf_ue->num_of_slice; i++) {
                 if (i >= OGS_MAX_NUM_OF_SLICE) {
@@ -1293,6 +1318,8 @@ int gmm_handle_ul_nas_transport(ran_ue_t *ran_ue, amf_ue_t *amf_ue,
                         OGS_NAS_5GS_UL_NAS_TRANSPORT_S_NSSAI_PRESENT) {
                     ogs_nas_s_nssai_ie_t ie;
                     if (ogs_nas_parse_s_nssai(&ie, nas_s_nssai) != 0) {
+                        offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  OGS_NAS_5GS_UL_NAS_TRANSPORT_S_NSSAI_PRESENT : IE: sst=%d sd=%d\n", 
+                                           ie.sst, ie.sd.v);
                         if (ie.sst == amf_ue->slice[i].s_nssai.sst &&
                             ie.sd.v == amf_ue->slice[i].s_nssai.sd.v) {
 
@@ -1321,8 +1348,12 @@ int gmm_handle_ul_nas_transport(ran_ue_t *ran_ue, amf_ue_t *amf_ue,
                         amf_ue->slice[i].s_nssai.sd.v ==
                             amf_ue->allowed_nssai.s_nssai[j].sd.v) {
 
+                        offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  UE slice idx %d matches allowed_nssai idx %d \n", i, j);
+
                         if (ul_nas_transport->presencemask &
                                 OGS_NAS_5GS_UL_NAS_TRANSPORT_DNN_PRESENT) {
+
+                            offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  OGS_NAS_5GS_UL_NAS_TRANSPORT_DNN_PRESENT\n");
 
                             for (k = 0;
                                     k < amf_ue->slice[i].num_of_session; k++) {
@@ -1333,6 +1364,11 @@ int gmm_handle_ul_nas_transport(ran_ue_t *ran_ue, amf_ue_t *amf_ue,
                                         OGS_MAX_NUM_OF_SESS);
                                     break;
                                 }
+
+                                
+                                offset += snprintf(buffer + offset, sizeof(buffer) - offset, "    slice[%d].session[%d].name=%s dnn=%s\n", 
+                                                   i, k, amf_ue->slice[i].session[k].name, dnn->value);
+
                                 if (!ogs_strcasecmp(dnn->value,
                                             amf_ue->slice[i].session[k].name)) {
 
@@ -1342,6 +1378,7 @@ int gmm_handle_ul_nas_transport(ran_ue_t *ran_ue, amf_ue_t *amf_ue,
                                     if (sess->dnn)
                                         ogs_free(sess->dnn);
                                     sess->dnn = ogs_strdup(dnn->value);
+                                    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "        match!!, sess->dnn = %s\n", sess->dnn);
                                     ogs_assert(sess->dnn);
 
                                 } else {
@@ -1351,20 +1388,28 @@ int gmm_handle_ul_nas_transport(ran_ue_t *ran_ue, amf_ue_t *amf_ue,
 
                         } else {
 
+                            offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  NOT OGS_NAS_5GS_UL_NAS_TRANSPORT_DNN_PRESENT\n");
+
                             selected_slice = amf_ue->slice + i;
                             ogs_assert(selected_slice);
+
+                            offset += snprintf(buffer + offset, sizeof(buffer) - offset, "     selected_slice[%d] num_of_sessions=%d\n", 
+                                           i, selected_slice->num_of_session);
 
                             if (selected_slice->num_of_session) {
                                 if (sess->dnn)
                                     ogs_free(sess->dnn);
                                 sess->dnn = ogs_strdup(
                                         selected_slice->session[0].name);
+                                offset += snprintf(buffer + offset, sizeof(buffer) - offset, "        sess->dnn = %s\n", sess->dnn);
                                 ogs_assert(sess->dnn);
                             }
                         }
                     }
                 }
             }
+
+            ogs_warn("%s\n", buffer);
 
             if (!selected_slice || !sess->dnn) {
                 ogs_warn("[%s] Ue requested DNN \"%s\" Not Supported OR "

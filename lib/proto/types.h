@@ -1081,6 +1081,12 @@ typedef struct ogs_port_s {
     uint16_t port;
 } ogs_port_t;
 
+
+char* ogs_plmn_id_to_string2(ogs_plmn_id_t* plmn_id);
+char* ogs_s_nssai_to_string(ogs_s_nssai_t* s_nssai);
+void ogs_slice_data_to_string(ogs_slice_data_t *slice_data, const char* indent, char* buffer, int* offset, int buffer_len);
+void ogs_session_to_string(ogs_session_t *session, const char* indent, char* buffer, int* offset, int buffer_len);
+
 #ifdef __cplusplus
 }
 #endif

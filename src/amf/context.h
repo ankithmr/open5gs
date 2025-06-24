@@ -130,6 +130,12 @@ typedef struct amf_context_s {
         } t3502, t3512;
     } time;
 
+    struct {
+        bool enabled;
+        const char *rlog_ip;
+        uint16_t rlog_port;
+    } rlogger;
+
 } amf_context_t;
 
 typedef struct amf_gnb_s {
@@ -1097,6 +1103,8 @@ bool amf_update_allowed_nssai(amf_ue_t *amf_ue);
 bool amf_ue_is_rat_restricted(amf_ue_t *amf_ue);
 int amf_instance_get_load(void);
 void amf_ue_save_to_release_session_list(amf_ue_t *amf_ue);
+
+char* amf_gnb_to_string(amf_gnb_t *amf_gnb);
 
 #ifdef __cplusplus
 }

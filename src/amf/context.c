@@ -17,6 +17,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <stdio.h>
+#include <time.h>
+#include <stdint.h>
+#include <unistd.h>       // for close()
+#include <arpa/inet.h>    // for sockaddr_in, inet_pton()
+
+
 #include "ngap-path.h"
 
 static amf_context_t self;
@@ -41,6 +48,13 @@ static void stats_remove_ran_ue(void);
 static void stats_add_amf_session(void);
 static void stats_remove_amf_session(void);
 static bool amf_namf_comm_parse_guti(ogs_nas_5gs_guti_t *guti, char *ue_context_id);
+
+static int ran_ue_to_json(ran_ue_t* ran_ue, char *json_str, size_t json_str_len, int offset);
+static void ran_ue_log(ran_ue_t* ran_ue, const char* event);
+static int amf_ue_to_json(amf_ue_t* amf_ue, char *json_str, size_t json_str_len, int offset);
+static void amf_ue_log(amf_ue_t* amf_ue, const char* event);
+static int amf_rlog(const char* json_msg);
+static void amf_list_display(void);
 
 void amf_context_init(void)
 {
@@ -228,6 +242,23 @@ int amf_context_parse_config(void)
                 if (!strcmp(amf_key, "relative_capacity")) {
                     const char *v = ogs_yaml_iter_value(&amf_iter);
                     if (v) self.relative_capacity = atoi(v);
+
+                } else if (!strcmp(amf_key, "rlogger")) {
+                    ogs_yaml_iter_t logger_iter;
+                    ogs_yaml_iter_recurse(&amf_iter, &logger_iter);
+                    while (ogs_yaml_iter_next(&logger_iter)) {
+                        const char *key = ogs_yaml_iter_key(&logger_iter);
+                        ogs_assert(key);
+                        if (!strcmp(key, "enabled")) {
+                            self.rlogger.enabled = (ogs_yaml_iter_bool(&logger_iter) == 1);
+                        } else if (!strcmp(key, "rlog_ip")) {
+                            self.rlogger.rlog_ip =  ogs_yaml_iter_value(&logger_iter);
+                        } else if (!strcmp(key, "rlog_port")) {
+                            const char* v =  ogs_yaml_iter_value(&logger_iter);
+                            self.rlogger.rlog_port = atoi(v);
+                        }
+                    }
+
                 } else if (!strcmp(amf_key, "ngap")) {
                     ogs_yaml_iter_t ngap_iter;
                     ogs_yaml_iter_recurse(&amf_iter, &ngap_iter);
@@ -1407,6 +1438,9 @@ ran_ue_t *ran_ue_add(amf_gnb_t *gnb, uint64_t ran_ue_ngap_id)
 
     stats_add_ran_ue();
 
+
+    ran_ue_log(ran_ue, "ran-ue-add");
+
     return ran_ue;
 }
 
@@ -1415,6 +1449,10 @@ void ran_ue_remove(ran_ue_t *ran_ue)
     amf_gnb_t *gnb = NULL;
 
     ogs_assert(ran_ue);
+
+    amf_ue_t* amf_ue = amf_ue_find_by_id(ran_ue->amf_ue_id);
+
+    ran_ue_log(ran_ue, "ran-ue-remove");
 
     gnb = amf_gnb_find_by_id(ran_ue->gnb_id);
 
@@ -1426,6 +1464,10 @@ void ran_ue_remove(ran_ue_t *ran_ue)
     ogs_pool_id_free(&ran_ue_pool, ran_ue);
 
     stats_remove_ran_ue();
+
+    if (amf_ue) {
+        amf_ue_log(amf_ue, "ran-ue-remove");
+    }
 }
 
 void ran_ue_switch_to_gnb(ran_ue_t *ran_ue, amf_gnb_t *new_gnb)
@@ -1516,6 +1558,8 @@ void amf_ue_new_guti(amf_ue_t *amf_ue)
     amf_ue->next.m_tmsi = amf_m_tmsi_alloc();
     ogs_assert(amf_ue->next.m_tmsi);
     amf_ue->next.guti.m_tmsi = *(amf_ue->next.m_tmsi);
+
+    amf_ue_log(amf_ue, "amf-new-guti");
 }
 
 void amf_ue_confirm_guti(amf_ue_t *amf_ue)
@@ -1563,6 +1607,8 @@ void amf_ue_confirm_guti(amf_ue_t *amf_ue)
 
     /* Clear Next GUTI */
     amf_ue->next.m_tmsi = NULL;
+
+    amf_ue_log(amf_ue, "amf-confirm-guti");
 }
 
 amf_ue_t *amf_ue_add(ran_ue_t *ran_ue)
@@ -1682,6 +1728,8 @@ amf_ue_t *amf_ue_add(ran_ue_t *ran_ue)
     ogs_info("[Added] Number of AMF-UEs is now %d",
             ogs_list_count(&self.amf_ue_list));
 
+    amf_ue_log(amf_ue, "amf-ue-add");
+
     return amf_ue;
 }
 
@@ -1690,6 +1738,8 @@ void amf_ue_remove(amf_ue_t *amf_ue)
     int i;
 
     ogs_assert(amf_ue);
+
+    amf_ue_log(amf_ue, "amf-ue-remove");    
 
     ogs_list_remove(&self.amf_ue_list, amf_ue);
 
@@ -2187,6 +2237,8 @@ void amf_ue_set_suci(amf_ue_t *amf_ue,
     }
     amf_ue->suci = suci;
     ogs_hash_set(self.suci_hash, amf_ue->suci, strlen(amf_ue->suci), amf_ue);
+
+    amf_ue_log(amf_ue, "amf-set-suci");
 }
 
 void amf_ue_set_supi(amf_ue_t *amf_ue, char *supi)
@@ -2200,6 +2252,8 @@ void amf_ue_set_supi(amf_ue_t *amf_ue, char *supi)
     amf_ue->supi = ogs_strdup(supi);
     ogs_assert(amf_ue->supi);
     ogs_hash_set(self.supi_hash, amf_ue->supi, strlen(amf_ue->supi), amf_ue);
+
+    amf_ue_log(amf_ue, "amf-set-supi");
 }
 
 OpenAPI_rat_type_e amf_ue_rat_type(amf_ue_t *amf_ue)
@@ -2229,6 +2283,8 @@ void amf_ue_associate_ran_ue(amf_ue_t *amf_ue, ran_ue_t *ran_ue)
 
     amf_ue->ran_ue_id = ran_ue->id;
     ran_ue->amf_ue_id = amf_ue->id;
+
+    amf_ue_log(amf_ue, "amf-associate-ran-ue");    
 }
 
 void ran_ue_deassociate(ran_ue_t *ran_ue)
@@ -2575,20 +2631,35 @@ ogs_s_nssai_t *amf_find_s_nssai(
     ogs_assert(served_plmn_id);
     ogs_assert(s_nssai);
 
+    char buffer[1024]; // Large enough buffer for the string
+    int offset = 0;
+
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset,  "amf_find_s_nssai: s_nssai.sst=%d s_nssai.sd=%d num_of_plmn_support=%d\n", 
+             s_nssai->sst, s_nssai->sd.v, amf_self()->num_of_plmn_support);
+
     for (i = 0; i < amf_self()->num_of_plmn_support; i++) {
         if (memcmp(&amf_self()->plmn_support[i].plmn_id,
-                    served_plmn_id, OGS_PLMN_ID_LEN) != 0)
+                    served_plmn_id, OGS_PLMN_ID_LEN) != 0) {
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset,  "  plms[%d] mismatch\n", i);                        
             continue;
+        }
+        offset += snprintf(buffer + offset, sizeof(buffer) - offset,  "  plms[%d] match\n", i);
+        offset += snprintf(buffer + offset, sizeof(buffer) - offset,  "  plmn[%d] num_of_s_nssai %d\n", i, amf_self()->plmn_support[i].num_of_s_nssai);
 
         for (j = 0; j < amf_self()->plmn_support[i].num_of_s_nssai; j++) {
             /* Compare S-NSSAI */
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset,  "  plmn[%d]-nssai[%d]:  sst=%d sd=%d \n", i, j, 
+                     amf_self()->plmn_support[i].s_nssai[j].sst == s_nssai->sst,
+                     amf_self()->plmn_support[i].s_nssai[j].sd.v);
             if (amf_self()->plmn_support[i].s_nssai[j].sst == s_nssai->sst &&
                 amf_self()->plmn_support[i].s_nssai[j].sd.v == s_nssai->sd.v) {
+                offset += snprintf(buffer + offset, sizeof(buffer) - offset,  "  nssai matched !!\n");
+                ogs_warn("%s\n", buffer);
                 return &amf_self()->plmn_support[i].s_nssai[j];
             }
         }
     }
-
+    ogs_warn("%s\n", buffer);
     return NULL;
 }
 
@@ -2787,6 +2858,7 @@ static void stats_add_ran_ue(void)
     amf_metrics_inst_global_inc(AMF_METR_GLOB_GAUGE_RAN_UE);
     num_of_ran_ue = num_of_ran_ue + 1;
     ogs_info("[Added] Number of gNB-UEs is now %d", num_of_ran_ue);
+    amf_list_display();
 }
 
 static void stats_remove_ran_ue(void)
@@ -2794,6 +2866,7 @@ static void stats_remove_ran_ue(void)
     amf_metrics_inst_global_dec(AMF_METR_GLOB_GAUGE_RAN_UE);
     num_of_ran_ue = num_of_ran_ue - 1;
     ogs_info("[Removed] Number of gNB-UEs is now %d", num_of_ran_ue);
+    amf_list_display();
 }
 
 int amf_instance_get_load(void)
@@ -3026,6 +3099,14 @@ bool amf_update_allowed_nssai(amf_ue_t *amf_ue)
     if (!amf_ue->allowed_nssai.num_of_s_nssai) {
         for (i = 0; i < amf_ue->num_of_slice; i++) {
             ogs_slice_data_t *slice = &amf_ue->slice[i];
+
+            {
+                char buffer[1024];
+                int offset=0;
+                ogs_slice_data_to_string(slice, "", buffer, &offset, sizeof(buffer));
+                if (offset) ogs_warn("%s\n", buffer);
+            }
+
             ogs_nas_s_nssai_ie_t *allowed =
                 &amf_ue->allowed_nssai.
                     s_nssai[amf_ue->allowed_nssai.num_of_s_nssai];
@@ -3150,4 +3231,292 @@ void amf_ue_save_to_release_session_list(amf_ue_t *amf_ue)
             OpenAPI_list_add(amf_ue->to_release_session_list, psi);
         }
     }
+}
+
+
+
+#define APPEND_JSON(__json_str, __json_str_len, __offset, fmt, ...) \
+    do { \
+        if (__offset < __json_str_len) { \
+            int written = snprintf(__json_str + __offset, __json_str_len - __offset, fmt, ##__VA_ARGS__); \
+            if (written < 0 || (size_t)written >= __json_str_len - __offset) { \
+                ogs_warn("JSON buffer truncated at line %d", __LINE__); \
+                break; \
+            } \
+            __offset += written; \
+        } \
+    } while (0)
+
+    
+static int ran_ue_to_json(ran_ue_t* ran_ue, char *json_str, size_t json_str_len, int offset) {
+    ogs_assert(ran_ue);
+    ogs_assert(json_str && json_str_len > 0);
+
+    APPEND_JSON(json_str, json_str_len, offset, "{");
+    APPEND_JSON(json_str, json_str_len, offset, "\"ran_ue_id\": %u, ", ran_ue->index);
+    APPEND_JSON(json_str, json_str_len, offset, "\"ran_ue_ngap_id\": %llu, ", (unsigned long long)ran_ue->ran_ue_ngap_id);
+    APPEND_JSON(json_str, json_str_len, offset, "\"amf_ue_ngap_id\": %llu", (unsigned long long)ran_ue->amf_ue_ngap_id);
+    APPEND_JSON(json_str, json_str_len, offset, "}");
+
+    json_str[offset] = '\0';
+
+    return offset;
+}
+
+//
+// All elemenets are optional.  If nothing is encoded, return -1
+// else return the updated offset
+static int amf_ue_to_json(amf_ue_t* amf_ue, char *json_str, size_t json_str_len, int offset) {
+    ogs_assert(amf_ue);
+    ogs_assert(json_str && json_str_len > 0);
+
+    APPEND_JSON(json_str, json_str_len, offset, "{");
+
+    bool first_field = true;
+
+    if (AMF_UE_HAVE_SUCI(amf_ue)) {
+        APPEND_JSON(json_str, json_str_len, offset, "%s\"suci\": \"%s\"", first_field ? "" : ", ", amf_ue->suci);
+        first_field = false;
+    }
+    if (amf_ue->supi) {
+        APPEND_JSON(json_str, json_str_len, offset, "%s\"supi\": \"%s\"", first_field ? "" : ", ", amf_ue->supi);
+        first_field = false;
+    }
+
+    if (ogs_plmn_id_hexdump(&amf_ue->home_plmn_id)) {
+        const char *home_plmn = ogs_plmn_id_to_string2(&amf_ue->home_plmn_id);
+        APPEND_JSON(json_str, json_str_len, offset, "%s\"home_plmn_id\": \"%s\"", first_field ? "" : ", ", home_plmn);
+        first_field = false;
+    }
+
+    if (amf_ue->current.m_tmsi) {
+        /* AMF has a VALID GUTI */
+        ogs_plmn_id_t guti_plmn;
+        ogs_nas_to_plmn_id(&guti_plmn, &amf_ue->current.guti.nas_plmn_id);
+
+        APPEND_JSON(json_str, json_str_len, offset, "%s\"current-guti\": { \"plmn_id\": \"%s\", \"amf_id\": \"%x\", \"m_tmsi\": %u }",
+                    first_field ? "" : ", ",
+                    ogs_plmn_id_to_string2(&guti_plmn),
+                    ogs_amf_id_hexdump(&amf_ue->next.guti.amf_id),
+                    amf_ue->current.guti.m_tmsi);
+        first_field = false;
+    }
+    if (amf_ue->next.m_tmsi) {
+        /* AMF has a VALID GUTI */
+        ogs_plmn_id_t guti_plmn;
+        ogs_nas_to_plmn_id(&guti_plmn, &amf_ue->next.guti.nas_plmn_id);
+
+        APPEND_JSON(json_str, json_str_len, offset, "%s\"next-guti\": { \"plmn_id\": \"%s\", \"amf_id\": \"%x\", \"m_tmsi\": %u }",
+                    first_field ? "" : ", ",
+                    ogs_plmn_id_to_string2(&guti_plmn),
+                    ogs_amf_id_hexdump(&amf_ue->next.guti.amf_id),
+                    amf_ue->next.guti.m_tmsi);
+        first_field = false;
+    }
+
+    uint32_t plmn_id_hex = ogs_plmn_id_hexdump(&amf_ue->nr_tai.plmn_id);
+    if (plmn_id_hex) {
+        APPEND_JSON(json_str, json_str_len, offset, "%s\"nr_tai\": { \"plmn_id\": \"%06x\", \"tac\": \"%d\" }", first_field ? "" : ", ", plmn_id_hex, amf_ue->nr_tai.tac.v);
+        first_field = false;
+    }
+
+    plmn_id_hex = ogs_plmn_id_hexdump(&amf_ue->nr_cgi.plmn_id);
+    if (plmn_id_hex) {
+        APPEND_JSON(json_str, json_str_len, offset, "%s\"nr_cgi\": { \"plmn_id\": \"%06x\", \"cell_id\": \"%llx\" }", first_field ? "" : ", ", plmn_id_hex, (long long)amf_ue->nr_cgi.cell_id);
+        first_field = false;
+    }
+
+    if (CM_CONNECTED(amf_ue)) {
+        ran_ue_t *ran_ue = ran_ue_find_by_id(amf_ue->ran_ue_id);
+        if (ran_ue) {
+            APPEND_JSON(json_str, json_str_len, offset, "%s\"ran_ue\": ", first_field ? "" : ", ");
+            offset = ran_ue_to_json(ran_ue, json_str, json_str_len, offset);
+            first_field = false;
+        } else {
+            ogs_error("ran_ue_find_by_id failed for ran_ue_id: %u", amf_ue->ran_ue_id);
+        }
+    }
+
+    APPEND_JSON(json_str, json_str_len, offset, "}");
+
+    if (first_field) {
+        return -1;
+    }
+
+    json_str[offset] = '\0';
+    return offset;
+}
+
+static inline uint64_t get_epoch_ns(void) {
+
+    struct timespec ts;
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+        perror("clock_gettime failed");
+        return 0;
+    }
+
+    // Convert to nanoseconds since epoch
+    uint64_t timestamp_ns = (uint64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+
+    return timestamp_ns;
+}
+
+static void ran_ue_log(ran_ue_t* ran_ue, const char* event) {
+    char json_str[16384];
+    int offset = 0;
+    json_str[offset] = 0;
+
+    APPEND_JSON(json_str, sizeof(json_str), offset, "{");
+    APPEND_JSON(json_str, sizeof(json_str), offset, "\"timestamp\": %ld", get_epoch_ns());
+    APPEND_JSON(json_str, sizeof(json_str), offset, ", \"stream_index\": \"open5gs\"");
+    APPEND_JSON(json_str, sizeof(json_str), offset, ", \"event\": \"%s\"", event);
+    APPEND_JSON(json_str, sizeof(json_str), offset, ", \"context_type\": \"ran-ue\"");
+    APPEND_JSON(json_str, sizeof(json_str), offset, ", \"context\":");
+    offset = ran_ue_to_json(ran_ue, json_str, sizeof(json_str), offset);
+    APPEND_JSON(json_str, sizeof(json_str), offset, "}");
+    json_str[offset] = 0;
+
+    amf_rlog(json_str);
+}
+
+static void amf_ue_log(amf_ue_t* amf_ue, const char* event) {
+    char json_str[16384];
+    int offset = 0;
+    json_str[offset] = 0;
+
+    APPEND_JSON(json_str, sizeof(json_str), offset, "{");
+    APPEND_JSON(json_str, sizeof(json_str), offset, "\"timestamp\": %ld", get_epoch_ns());
+    APPEND_JSON(json_str, sizeof(json_str), offset, ", \"stream_index\": \"open5gs\"");
+    APPEND_JSON(json_str, sizeof(json_str), offset, ", \"event\": \"%s\"", event);
+    APPEND_JSON(json_str, sizeof(json_str), offset, ", \"context_type\": \"amf-ue\"");
+    APPEND_JSON(json_str, sizeof(json_str), offset, ", \"context\":");
+    offset = amf_ue_to_json(amf_ue, json_str, sizeof(json_str), offset);
+    if (offset == -1) {
+        // nothing was encoded for this UE, so dont log anything
+        return;
+    }
+    APPEND_JSON(json_str, sizeof(json_str), offset, "}");
+    json_str[offset] = 0;
+
+    amf_rlog(json_str);
+}
+
+static int amf_rlog(const char* json_msg)
+{
+    int sockfd;
+    struct sockaddr_in dest_addr;
+
+    if (!json_msg) {
+        ogs_error("amf_rlog: NULL message");
+        return -1;
+    }
+    size_t json_msg_len = strlen(json_msg);
+    if (json_msg_len < 1) {
+        ogs_error("amf_rlog: empty message");
+        return -1;
+    }
+
+    // Create UDP socket
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) {
+        ogs_error("amf_rlog: socket creation failed");
+        return -1;
+    }
+
+    // Set destination address
+    memset(&dest_addr, 0, sizeof(dest_addr));
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_port = htons(self.rlogger.rlog_port);
+    if (inet_pton(AF_INET, self.rlogger.rlog_ip, &dest_addr.sin_addr) <= 0) {
+        ogs_error("amf_rlog: Invalid address/ Address not supported");
+        close(sockfd);
+        return -1;
+    }
+
+    // Send the json_msg
+    ssize_t sent_bytes = sendto(sockfd, json_msg, json_msg_len, 0,
+                                (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+    if (sent_bytes < 0) {
+        ogs_error("amf_rlog: sendto failed");
+        close(sockfd);
+        return -1;
+    }
+
+    ogs_info("amf_rlog: Sent %zd bytes to %s:%d\n", sent_bytes, self.rlogger.rlog_ip, self.rlogger.rlog_port);
+
+    close(sockfd);
+
+    return sent_bytes;
+}
+
+static void amf_list_display(void) {
+
+    static char buffer[10386]; // Large enough buffer for the string
+    int offset = 0;
+    int i;
+    int verbose = 0;
+    int count = 0;         // Counter for entries displayed
+    int total_count = 0;         // Counter for entries displayed
+    int max_count = 10;
+
+    amf_ue_t *amf_ue = NULL;
+    ogs_list_for_each(&self.amf_ue_list, amf_ue) {
+
+        if (count < max_count) {
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, "\nue:\n");
+
+            if (amf_ue->suci)
+                offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  suci : %s:\n", amf_ue->suci);
+
+            if (amf_ue->supi)
+                offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  supi : %s:\n", amf_ue->supi);
+
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  num_of_slice : %d:\n", amf_ue->num_of_slice);
+
+            if (verbose) {
+                for (i = 0; i < amf_ue->num_of_slice; i++) {
+                    ogs_slice_data_to_string(&amf_ue->slice[i], "    ", buffer, &offset, sizeof(buffer));
+                }
+            }
+            count++;
+	    }
+        total_count++;
+    }
+
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, 
+                       "\nDisplayed %d out of %d UEs\n", count, total_count);
+
+    ogs_info("%s", buffer);
+}
+
+
+char* amf_gnb_to_string(amf_gnb_t *amf_gnb) {
+    static char buffer[8192]; // Large enough buffer for the string
+    int offset = 0;
+
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "gnb_id: %u\n", amf_gnb->gnb_id);
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "plmn_id: %s\n", ogs_plmn_id_to_string2(&amf_gnb->plmn_id));
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "ng_setup_success: %s\n", amf_gnb->state.ng_setup_success ? "true" : "false");
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "max_num_of_ostreams: %d\n", amf_gnb->max_num_of_ostreams);
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "ostream_id: %u\n", amf_gnb->ostream_id);
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "num_of_supported_ta_list: %d\n", amf_gnb->num_of_supported_ta_list);
+
+    for (int i = 0; i < amf_gnb->num_of_supported_ta_list; i++) {
+        offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  supported_ta_list[%d].tac: %s\n", i, ogs_uint24_to_0string(amf_gnb->supported_ta_list[i].tac));
+        offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  supported_ta_list[%d].num_of_bplmn_list: %d\n", i, amf_gnb->supported_ta_list[i].num_of_bplmn_list);
+        for (int j = 0; j < amf_gnb->supported_ta_list[i].num_of_bplmn_list; j++) {
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, "    bplmn_list[%d].plmn_id: %s\n", j, ogs_plmn_id_to_string2(&amf_gnb->supported_ta_list[i].bplmn_list[j].plmn_id));
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, "    bplmn_list[%d].num_of_s_nssai: %d\n", j, amf_gnb->supported_ta_list[i].bplmn_list[j].num_of_s_nssai);
+            for (int k = 0; k < amf_gnb->supported_ta_list[i].bplmn_list[j].num_of_s_nssai; k++) {
+                offset += snprintf(buffer + offset, sizeof(buffer) - offset, "      s_nssai[%d]: %s\n", k, ogs_s_nssai_to_string(&amf_gnb->supported_ta_list[i].bplmn_list[j].s_nssai[k]));
+            }
+        }
+    }
+
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "rat_type: %d\n", amf_gnb->rat_type);
+    // ng_reset_ack and ran_ue_list need appropriate string conversions based on their definitions
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "ng_reset_ack: %p\n", (void*)amf_gnb->ng_reset_ack);
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "ran_ue_list: %p\n", (void*)&amf_gnb->ran_ue_list);
+
+    return buffer;
 }

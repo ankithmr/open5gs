@@ -1168,3 +1168,55 @@ int ogs_pcc_rule_update_qos_from_media(
 
     return OGS_OK;
 }
+
+
+char* ogs_plmn_id_to_string2(ogs_plmn_id_t* plmn_id) {
+    static char buffer[7];
+    snprintf(buffer, sizeof(buffer), "%X%X%X%X%X%X",
+             plmn_id->mcc1, plmn_id->mcc2, plmn_id->mcc3,
+             plmn_id->mnc1, plmn_id->mnc2, plmn_id->mnc3);
+    return buffer;
+}
+
+char* ogs_s_nssai_to_string(ogs_s_nssai_t* s_nssai) {
+    static char buffer[32];
+    char *sd = ogs_s_nssai_sd_to_string(s_nssai->sd);
+    if (s_nssai->sd.v == OGS_S_NSSAI_NO_SD_VALUE) {
+        snprintf(buffer, sizeof(buffer), "sst: %d, sd: NO_SD", s_nssai->sst);
+    } else {
+        snprintf(buffer, sizeof(buffer), "sst: %d, sd: %s", s_nssai->sst, sd);
+    }
+    return buffer;
+}
+
+void ogs_slice_data_to_string(ogs_slice_data_t *slice_data, const char* indent, char* buffer, int* offset, int buffer_len)
+{
+    int i;
+
+    *offset += snprintf(buffer + *offset, buffer_len - *offset, "%sslice_data:\n", indent);
+    *offset += snprintf(buffer + *offset, buffer_len - *offset, "%s  sst=%d sd=%d\n", indent, slice_data->s_nssai.sst, slice_data->s_nssai.sd.v);
+    *offset += snprintf(buffer + *offset, buffer_len - *offset, "%s  default_indicator=%d\n", indent, slice_data->default_indicator);
+    *offset += snprintf(buffer + *offset, buffer_len - *offset, "%s  context_identifier=%d\n", indent, slice_data->context_identifier);
+    *offset += snprintf(buffer + *offset, buffer_len - *offset, "%s  all_apn_config_inc=%d\n", indent, slice_data->all_apn_config_inc);
+    *offset += snprintf(buffer + *offset, buffer_len - *offset, "%s  num_of_session=%d\n", indent, slice_data->num_of_session);
+
+    char indent2[100];
+    sprintf(indent2, "%s  ", indent);
+    for (i=0; i<slice_data->num_of_session; i++) {
+        ogs_session_to_string(&slice_data->session[i], indent2, buffer, offset, buffer_len);
+    }
+}
+
+void ogs_session_to_string(ogs_session_t *session, const char* indent, char* buffer, int* offset, int buffer_len)
+{
+    int i;
+
+    *offset += snprintf(buffer + *offset, buffer_len - *offset, "%ssession: %s\n", indent, session->name);
+    *offset += snprintf(buffer + *offset, buffer_len - *offset, "%s  context_identifier=%d\n", indent, session->context_identifier);
+    *offset += snprintf(buffer + *offset, buffer_len - *offset, "%s  default_dnn_indicator=%d\n", indent, session->default_dnn_indicator);
+    *offset += snprintf(buffer + *offset, buffer_len - *offset, "%s  session_type=%d\n", indent, session->session_type);
+    *offset += snprintf(buffer + *offset, buffer_len - *offset, "%s  ssc_mode=%d\n", indent, session->ssc_mode);
+    
+    // TODO - fill in rest if needed
+}
+

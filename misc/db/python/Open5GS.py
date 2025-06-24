@@ -13,7 +13,7 @@ class Open5GS:
         mycol = mydb["subscribers"]
         subs_list = []
         for x in mycol.find():
-            print(x)
+            # print(x)
             subs_list.append(x)
             pass
 
@@ -26,7 +26,7 @@ class Open5GS:
         myquery = { "imsi": str(imsi)}
         mydoc = mycol.find(myquery)
         for x in mydoc:
-            print(x)
+            # print(x)
             return x
 
     def AddSubscriber(self, sub_data):

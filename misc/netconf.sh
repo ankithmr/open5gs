@@ -22,6 +22,10 @@ if [ "$SYSTEM" = "Linux" ]; then
     ip addr add 10.47.0.1/16 dev ogstun3
     ip addr del 2001:db8:face::1/48 dev ogstun3 2> /dev/null
     ip addr add 2001:db8:face::1/48 dev ogstun3
+    ip addr del 10.48.0.1/16 dev ogstun4 2> /dev/null
+    ip addr add 10.48.0.1/16 dev ogstun4
+    ip addr del 2001:db8:deaf::1/48 dev ogstun4 2> /dev/null
+    ip addr add 2001:db8:deaf::1/48 dev ogstun4    
     ip link set ogstun up
 else
     sysctl -w net.inet.ip.forwarding=1

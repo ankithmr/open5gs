@@ -1,0 +1,1 @@
+/home/ankit/code/Open5GS_docker/env.sh

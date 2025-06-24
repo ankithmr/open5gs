@@ -2500,18 +2500,28 @@ ogs_pfcp_subnet_t *ogs_pfcp_find_subnet(int family)
 ogs_pfcp_subnet_t *ogs_pfcp_find_subnet_by_dnn(int family, const char *dnn)
 {
     ogs_pfcp_subnet_t *subnet = NULL;
+    int j=0;
 
     ogs_assert(dnn);
     ogs_assert(family == AF_INET || family == AF_INET6);
 
+    char buffer[1024]; // Large enough buffer for the string
+    int offset = 0;
+
     ogs_list_for_each(&self.subnet_list, subnet) {
+        offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  -------\n");
+        offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  subnet, dnn=%s family=%d. prefixlen=%d pool.avail=%d, num_of_range=%d", subnet->dnn, subnet->family, subnet->prefixlen, subnet->pool.avail, subnet->num_of_range);
+        for (j=0; j<subnet->num_of_range; j++) {
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, "     low %s high %s\n", subnet->range[j].low, subnet->range[j].high);
+        }
         if ((subnet->family == AF_UNSPEC || subnet->family == family) &&
             (strlen(subnet->dnn) == 0 ||
                 (strlen(subnet->dnn) && ogs_strcasecmp(subnet->dnn, dnn) == 0)) &&
             subnet->pool.avail)
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, "        selected !!\n");
             break;
     }
-
+    ogs_warn("%s", buffer);
     return subnet;
 }
 

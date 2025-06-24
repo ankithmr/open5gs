@@ -354,6 +354,9 @@ void ngap_handle_ng_setup_request(amf_gnb_t *gnb, ogs_ngap_message_t *message)
         return;
     }
 
+    char* s =  amf_gnb_to_string(gnb);
+    ogs_warn("ngap_handle_ng_setup_request: \n%s\n", s);
+
     /*
      * TS38.413
      * Section 8.7.1.4 Abnormal Conditions
